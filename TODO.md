@@ -29,4 +29,4 @@
   * Ответы от приложения в виде JSON
   * Файлы должны именоваться следующим образом `%api_method%-request.txt` для запроса и `%api_method-response.json` для ответа, например, `addition-request.txt` для запроса к методу `/addition` и `addition-response.json` для ответа от него.
   * Отдельным файлом `task-result.md` описать, с какими проблемами сталкивался и как решал те или иные ситуации
-* Все отчёты должны быть в 
+* Все отчёты должны быть в Merge Request (Pull Request) в ветку master
