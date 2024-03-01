@@ -1,0 +1,2 @@
+curl --insecure https://app.84.252.142.198.sslip.io/subtraction -d '{"a":22,"b":-6}'
+
