@@ -1,0 +1,15 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: binary
+spec: 
+  template:
+    spec:
+      containers:
+      - name: binary 
+        image: alexgena/mypython:v1
+        command: ["/bin/sh","/usr/local/bin/","./migrator" ]
+      restartPolicy: Never
+  backoffLimit: 4
+                            
