@@ -23,6 +23,11 @@ source ~/.bashrc
 4. Устанавливаем Helm
 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
+cd ~/
+mkdir ./kube
+cp /etc/rancher/k3s/k3s.yaml .kube/config
+chmod -R 700 .kube
+
 5. Устанавливаем ингресс nginx
 mkdir /home/ms/helms -p
 cd /home/ms/helms
