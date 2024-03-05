@@ -1,0 +1,26 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: portainer-ingress
+  namespace: default
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/whitelist-source-range: 0.0.0.0/0
+spec:
+  rules:
+  - host: portainer.84.252.142.198.sslip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: portainer
+            port:
+              number: 9000
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - portainer.84.252.142.198.sslip.io
+    secretName: portainer-ssl

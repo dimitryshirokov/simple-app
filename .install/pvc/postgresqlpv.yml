@@ -1,0 +1,17 @@
+---
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: postgresql
+  namespace: default
+  labels:
+    type: local
+spec:
+  storageClassName: local-path
+  capacity:
+    storage: 8Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/data/volumes/postgresql"
+...

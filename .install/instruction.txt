@@ -1,0 +1,311 @@
+1. Установка k3s:
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --disable=traefik" sh -s -
+
+2. посмотреть статус k3s:
+service k3s status
+
+3. Для удобства используйте алиасы
+echo "alias k='kubectl'" >> ~/.bashrc
+echo "alias kg='kubectl get'" >> ~/.bashrc
+echo "alias kgp='kubectl get po'" >> ~/.bashrc
+echo "alias kd='kubectl delete -f'" >> ~/.bashrc
+echo "alias ka='kubectl apply -f'" >> ~/.bashrc
+echo "alias ke='kubectl exec -it'" >> ~/.bashrc
+echo "alias k1='kubectl describe'" >> ~/.bashrc
+echo "alias kl='kubectl logs'" >> ~/.bashrc
+echo "alias kgs='kubectl get svc -A'" >> ~/.bashrc
+echo "alias kr='kubectl rollout restart deployment'" >> ~/.bashrc
+echo "alias krs='kubectl rollout restart sts'" >> ~/.bashrc
+echo "alias krd='kubectl rollout restart ds'" >> ~/.bashrc
+echo "alias kpa='kubectl get po -A'" >> ~/.bashrc
+source ~/.bashrc
+
+4. Устанавливаем Helm
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+cd ~/
+mkdir .kube
+cp /etc/rancher/k3s/k3s.yaml .kube/config
+chmod -R 700 .kube
+
+5. Устанавливаем ингресс nginx
+mkdir /home/ms/helms -p
+cd /home/ms/helms
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+helm pull ingress-nginx/ingress-nginx
+tar zxf ingress-nginx-*.tgz
+rm ingress-nginx-* -f
+cp ingress-nginx/values.yaml ingress-nginx-values.yaml
+helm upgrade --install ingress-nginx -f ingress-nginx-values.yaml ingress-nginx/
+
+k edit cm ingress-nginx-controller
+data:
+  use-forwarded-headers: 'true' #эту настройку надо сделать что бы мы видели реальные ip адреса с которых прилетают хэдеры в ингрес , а не балансировщик нагрузок, с которого прилетают
+kr ingress-nginx-controller
+
+6.Устанавливаем cert-manager 
+mkdir /home/ms/helms -p
+cd /home/ms/helms
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+helm pull jetstack/cert-manager
+tar zxf cert-manager-*.tgz
+rm cert-manager-*.tgz -f
+cp cert-manager/values.yaml cert-manager-values.yaml
+helm upgrade --install cert-manager -f cert-manager-values.yaml cert-manager/ --set installCRDs=true
+
+mkdir /home/ms/ci/ -p
+cd /home/ms/ci
+
+ cat << \EOF > cert-manager-issuer.yaml
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+	email: mail@domain
+	server: https://acme-v02.api.letsencrypt.org/directory
+	privateKeySecretRef:
+  	name: letsencrypt-prod
+	solvers:
+	- http01:
+    	ingress:
+      	class: nginx
+EOF
+ka cert-manager-issuer.yaml
+7. По усмотрению, но по моему полезно. Устанавливаем Portainer
+mkdir /data/ -p
+chmod 777 -R /data/
+
+mkdir -p /data/volumes/portainer
+chmod 777 /data/volumes/portainer
+
+mkdir /home/ms/pvc -p
+cd /home/ms/pvc
+ cat << \EOF > portainerpv.yml
+---
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: portainer
+  namespace: default
+  labels:
+        type: local
+spec:
+  storageClassName: local-path
+  capacity:
+        storage: 5Gi
+  accessModes:
+        - ReadWriteOnce
+  hostPath:
+        path: "/data/volumes/portainer"
+...
+EOF
+ka portainerpvc.yml
+
+cd /home/ms/pvc
+ cat << \EOF > portainerpvc.yml
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: portainer
+  namespace: default
+spec:
+  storageClassName: local-path
+  accessModes:
+	- ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+...
+EOF
+ka portainerpvc.yml
+
+mkdir /home/ms/helms -p
+cd /home/ms/helms
+### portainer
+helm repo add portainer https://portainer.github.io/k8s/
+helm repo update
+
+helm pull portainer/portainer
+tar zxf portainer-*
+rm portainer-* -f
+cp portainer/values.yaml portainer-values.yaml
+vi portainer-values.yaml
+Сменить NodePort на ClusterIP
+existingClaim: portainer прописать portainer
+
+cd /home/ms/helms
+helm upgrade --install portainer -f portainer-values.yaml portainer/
+
+mkdir /home/ms/ingress/  -p
+cd /home/ms/ingress
+ cat << \EOF > portainer-ingress.yaml
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: portainer-ingress
+  namespace: default
+  annotations:
+	nginx.ingress.kubernetes.io/whitelist-source-range: 0.0.0.0/0
+	cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  rules:
+  - host: portainer.<ваш ip>.sslip.io
+      http:
+        paths:
+          - path: /
+          pathType: Prefix
+          backend:
+          service:
+            name: portainer
+            port:
+            number: 9000
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - portainer.<ваш ip>.sslip.io
+    secretName: portainer-ssl
+EOF
+
+ka portainer-ingress.yaml
+В течении 5 минут нужно зайти на указанный Вами адрес и зарегистрироваться, иначе Portainer блокнет соединение
+
+8. Установка PostreSQL
+mkdir -p /data/volumes/postgresql
+chmod 777 /data/volumes/postgresql
+
+mkdir /home/ms/pvc -p
+cd /home/ms/pvc
+cat << \EOF > postgresqlpv.yml
+---
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: postgresql
+  namespace: default
+  labels:
+	type: local
+spec:
+  storageClassName: local-path
+  capacity:
+	storage: 8Gi
+  accessModes:
+	- ReadWriteOnce
+  hostPath:
+	path: "/data/volumes/postgresql"
+...
+EOF
+ka postgresqlpv.yml
+
+cd /home/ms/pvc
+ cat << \EOF > postgresqlpvc.yml
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgresql
+  namespace: default
+spec:
+  storageClassName: local-path
+  accessModes:
+	- ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi
+...
+EOF
+ka postgresqlpvc.yml
+
+mkdir /home/ms/helms -p
+cd /home/ms/helms
+### postgresql
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+
+helm pull bitnami/postgresql
+tar zxf postgresql-*
+rm postgresql-* -f
+cp postgresql/values.yaml postgresql-values.yaml
+vi postgresql-values.yaml
+
+existingClaim: postgresql # нужно поменять в PersistentVolume && PersisteneVolumeClaim
+helm upgrade --install postgresql -f postgresql-values.yaml postgresql/
+
+kubectl get secret postgresql -o jsonpath="{.data.postgres-password}" | base64 -d посмотреть свой пароль от postgres
+
+ke postgresql-0 -- bash
+ PGPASSWORD="ваш пароль" psql --host 127.0.0.1 -U postgres -d postgres -p 5432
+
+CREATE DATABASE simple_app;
+CREATE USER <имя пользователя> WITH PASSWORD 'ваш пароль';
+GRANT ALL PRIVILEGES ON DATABASE <имя пользователя> to simple-app;
+
+10. Установка Grafana stack
+mkdir /home/ms/helms -p
+cd /home/ms/helms
+cat << \EOF > grafana-values.yml
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+prometheus:
+  enabled: true
+  isDefault: false
+  url: http://{{ include "prometheus.fullname" .}}:{{ .Values.prometheus.server.service.servicePort }}{{ .Values.prometheus.server.prefixURL }}
+  datasource:
+    jsonData: "{}"
+
+loki:
+  enabled: true
+  isDefault: true
+  url: http://{{(include "loki.serviceName" .)}}:{{ .Values.loki.service.port }}
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: http-metrics
+    initialDelaySeconds: 45
+  livenessProbe:
+    httpGet:
+      path: /ready
+      port: http-metrics
+    initialDelaySeconds: 45
+  datasource:
+    jsonData: "{}"
+    uid: ""
+
+promtail:
+  enabled: true
+  config:
+    logLevel: info
+    serverPort: 3101
+    clients:
+      - url: http://{{ .Release.Name }}:3100/loki/api/v1/push
+
+grafana:
+  enabled: true 
+  sidecar:
+    datasources:
+      label: ""
+      labelValue: ""
+      enabled: true
+      maxLines: 1000
+  image:
+    tag: 10.0.2
+...
+EOF
+kubectl create namespace monitoring
+helm install -n monitoring --values values.yaml loki-stack grafana/loki-stack
+kubectl -n monitoring port-forward svc/loki-stack-grafana 8080:80
+
+kubectl -n monitoring get secret/loki-stack-grafana -o custom-columns="VALUE":.data.admin-user --no-headers | base64 --decode  #имя пользователя
+kubectl -n monitoring get secret/loki-stack-grafana -o custom-columns="VALUE":.data.admin-password --no-headers | base64 --decode # пароль из сикретов
+
+11. устанавливаем приложение
+cd /usr/local/bin
+git clone https://github.com/dimitryshirokov/simple-app.git
+cp -R /usr/local/bin/simple-app /usr/local/bin/app
+helm upgrade --install simple-app  /usr/local/bin/app/.helm/ 

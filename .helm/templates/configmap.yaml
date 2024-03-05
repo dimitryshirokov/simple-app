@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config-environment
+  labels:
+    {{- include "helm.labels" . | nindent 4 }}
+data:
+  DB_URL: "postgresql://postgres:GbtSRDwTAT@postgresql.default:5432/simple_app"
