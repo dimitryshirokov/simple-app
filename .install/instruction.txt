@@ -24,7 +24,7 @@ source ~/.bashrc
 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
 cd ~/
-mkdir ./kube
+mkdir .kube
 cp /etc/rancher/k3s/k3s.yaml .kube/config
 chmod -R 700 .kube
 
@@ -34,8 +34,8 @@ cd /home/ms/helms
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm repo update
 helm pull ingress-nginx/ingress-nginx
-tar zxf ingress-nginx-4.6.0.tgz
-rm ingress-nginx-4.6.0.tgz -f
+tar zxf ingress-nginx-*.tgz
+rm ingress-nginx-* -f
 cp ingress-nginx/values.yaml ingress-nginx-values.yaml
 helm upgrade --install ingress-nginx -f ingress-nginx-values.yaml ingress-nginx/
 
@@ -93,18 +93,18 @@ metadata:
   name: portainer
   namespace: default
   labels:
-	type: local
+        type: local
 spec:
   storageClassName: local-path
   capacity:
-	storage: 20Gi
+        storage: 5Gi
   accessModes:
-	- ReadWriteOnce
+        - ReadWriteOnce
   hostPath:
-	path: "/data/volumes/portainer"
+        path: "/data/volumes/portainer"
 ...
 EOF
-ka portainerpv.yml
+ka portainerpvc.yml
 
 cd /home/ms/pvc
  cat << \EOF > portainerpvc.yml
@@ -119,8 +119,8 @@ spec:
   accessModes:
 	- ReadWriteOnce
   resources:
-	requests:
-  	storage: 20Gi
+    requests:
+      storage: 5Gi
 ...
 EOF
 ka portainerpvc.yml
@@ -137,6 +137,8 @@ rm portainer-* -f
 cp portainer/values.yaml portainer-values.yaml
 vi portainer-values.yaml
 Сменить NodePort на ClusterIP
+existingClaim: portainer прописать portainer
+
 cd /home/ms/helms
 helm upgrade --install portainer -f portainer-values.yaml portainer/
 
@@ -155,20 +157,20 @@ metadata:
 spec:
   rules:
   - host: portainer.<ваш ip>.sslip.io
-	http:
-  	paths:
-  	- path: /
-    	pathType: Prefix
-    	backend:
-      	service:
-        	name: portainer
-        	port:
-          	number: 9000
+      http:
+        paths:
+          - path: /
+          pathType: Prefix
+          backend:
+          service:
+            name: portainer
+            port:
+            number: 9000
   ingressClassName: nginx
   tls:
   - hosts:
-	- portainer.<ваш ip>.sslip.io
-	secretName: portainer-ssl
+    - portainer.<ваш ip>.sslip.io
+    secretName: portainer-ssl
 EOF
 
 ka portainer-ingress.yaml
@@ -214,8 +216,8 @@ spec:
   accessModes:
 	- ReadWriteOnce
   resources:
-	requests:
-  	storage: 8Gi
+    requests:
+      storage: 8Gi
 ...
 EOF
 ka postgresqlpvc.yml
@@ -231,6 +233,8 @@ tar zxf postgresql-*
 rm postgresql-* -f
 cp postgresql/values.yaml postgresql-values.yaml
 vi postgresql-values.yaml
+
+existingClaim: postgresql # нужно поменять в PersistentVolume && PersisteneVolumeClaim
 helm upgrade --install postgresql -f postgresql-values.yaml postgresql/
 
 kubectl get secret postgresql -o jsonpath="{.data.postgres-password}" | base64 -d посмотреть свой пароль от postgres
@@ -242,94 +246,65 @@ CREATE DATABASE simple_app;
 CREATE USER <имя пользователя> WITH PASSWORD 'ваш пароль';
 GRANT ALL PRIVILEGES ON DATABASE <имя пользователя> to simple-app;
 
-10. Установка Prometheus
+10. Установка Grafana stack
+mkdir /home/ms/helms -p
 cd /home/ms/helms
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm repo update
-helm pull prometheus-community/prometheus
-tar zxf prometheus-*
-rm prometheus-* -f
-cp prometheus/values.yaml prometheus-values.yaml
-helm upgrade --install --create-namespace --values prometheus-values.yaml prometheus -n monitoring prometheus-community/prometheus
-
-mkdir /home/ms/ingress/  -p
-cd /home/ms/ingress
- cat << \EOF > prometheus-ingress.yaml
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: prometheus-ingress
-  namespace: monitoring
-  annotations:
-        nginx.ingress.kubernetes.io/whitelist-source-range: 0.0.0.0/0
-        cert-manager.io/cluster-issuer: letsencrypt-prod
-spec:
-  rules:
-  - host: prometheus.<ваш ip>.sslip.io
-        http:
-        paths:
-        - path: /
-        pathType: Prefix
-        backend:
-        service:
-                name: prometheus-server
-                port:
-                number: 9090
-  ingressClassName: nginx
-  tls:
-  - hosts:
-        - prometheus.<ваш ip>.sslip.io
-        secretName: prometheus-ssl
-EOF
-
-11. Grafana 
-cd /home/ms/helms
+cat << \EOF > grafana-values.yml
 helm repo add grafana https://grafana.github.io/helm-charts
 helm repo update
-helm pull grafana/grafana
-tar zxf grafana-*
-rm grafana-* -f
-cp grafana/values.yaml grafana-values.yaml
-vim grafana-values.yaml
+prometheus:
+  enabled: true
+  isDefault: false
+  url: http://{{ include "prometheus.fullname" .}}:{{ .Values.prometheus.server.service.servicePort }}{{ .Values.prometheus.server.prefixURL }}
+  datasource:
+    jsonData: "{}"
 
-persistence:
-  type:pvc
-  enabled: True # нужно поставить True иначе после смерти пода все настройки сбросятся
-helm upgrade --install --create-namespace --values grafana-values.yaml grafana -n monitoring grafana/grafana
+loki:
+  enabled: true
+  isDefault: true
+  url: http://{{(include "loki.serviceName" .)}}:{{ .Values.loki.service.port }}
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: http-metrics
+    initialDelaySeconds: 45
+  livenessProbe:
+    httpGet:
+      path: /ready
+      port: http-metrics
+    initialDelaySeconds: 45
+  datasource:
+    jsonData: "{}"
+    uid: ""
 
-mkdir /home/ms/ingress/  -p
-cd /home/ms/ingress
- cat << \EOF > grafana-ingress.yaml
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: grafana-ingress
-  namespace: monitoring
-  annotations:
-        nginx.ingress.kubernetes.io/whitelist-source-range: 0.0.0.0/0
-        cert-manager.io/cluster-issuer: letsencrypt-prod
-spec:
-  rules:
-  - host: grafana.<ваш ip>.sslip.io
-        http:
-        paths:
-        - path: /
-        pathType: Prefix
-        backend:
-        service:
-                name: grafana
-                port:
-                number: 9090
-  ingressClassName: nginx
-  tls:
-  - hosts:
-        - grafana.<ваш ip>.sslip.io
-        secretName: prometheus-ssl
+promtail:
+  enabled: true
+  config:
+    logLevel: info
+    serverPort: 3101
+    clients:
+      - url: http://{{ .Release.Name }}:3100/loki/api/v1/push
+
+grafana:
+  enabled: true 
+  sidecar:
+    datasources:
+      label: ""
+      labelValue: ""
+      enabled: true
+      maxLines: 1000
+  image:
+    tag: 10.0.2
+...
 EOF
+kubectl create namespace monitoring
+helm install -n monitoring --values values.yaml loki-stack grafana/loki-stack
+kubectl -n monitoring port-forward svc/loki-stack-grafana 8080:80
 
-12. устанавливаем приложение
+kubectl -n monitoring get secret/loki-stack-grafana -o custom-columns="VALUE":.data.admin-user --no-headers | base64 --decode  #имя пользователя
+kubectl -n monitoring get secret/loki-stack-grafana -o custom-columns="VALUE":.data.admin-password --no-headers | base64 --decode # пароль из сикретов
+
+11. устанавливаем приложение
 cd /usr/local/bin
 git clone https://github.com/dimitryshirokov/simple-app.git
 cp -R /usr/local/bin/simple-app /usr/local/bin/app

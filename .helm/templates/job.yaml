@@ -19,13 +19,3 @@ spec:
               name: config-environment
       restartPolicy: Never
   backoffLimit: 4
-
-resources:
-  limits:
-    cpu: 100m
-    memory: 512Mi
-  requests:
-    cpu: 5m
-    memory: 128Mi
-
-

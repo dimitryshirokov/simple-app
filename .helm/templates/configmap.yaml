@@ -5,4 +5,4 @@ metadata:
   labels:
     {{- include "helm.labels" . | nindent 4 }}
 data:
-  DB_URL: "postgres://postgres:x6cwOzI5Xt@postgresql.default:5432/simple_app"
+  DB_URL: "postgresql://postgres:GbtSRDwTAT@postgresql.default:5432/simple_app"

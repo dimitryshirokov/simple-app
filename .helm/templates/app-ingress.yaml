@@ -7,19 +7,19 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   rules:
-  - host: app.84.252.142.198.sslip.io
+  - host: app.5.227.32.0.sslip.io
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: app
+            name: simple-app
             port:
               number: 90
   ingressClassName: nginx
   tls:
   - hosts:
-    - app.84.252.142.198.sslip.io
+    - app.5.227.32.0.sslip.io
     secretName: app-ssl
 
